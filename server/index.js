@@ -8,10 +8,10 @@ import { requireAdmin, signAdminToken, verifyAdminCredentials } from '../lib/aut
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, '..');
-const publicRoot = path.join(root, 'public');
 const app = express();
 const port = process.env.PORT || 3000;
 const buckets = new Map();
+const startedAt = Date.now();
 
 app.disable('x-powered-by');
 app.set('trust proxy', process.env.TRUST_PROXY === 'true');
@@ -39,10 +39,15 @@ function rateLimited(req, limit = 20) {
 }
 function cleanText(value, max = 500) { return typeof value === 'string' ? value.trim().slice(0, max) : ''; }
 function asyncRoute(fn) { return (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next); }
+function publicAssetAllowed(urlPath) {
+  const normalized = decodeURIComponent(urlPath || '/');
+  const blocked = /(^|\/)(lib|server|tests|node_modules|\.git)(\/|$)|(^|\/)(package(?:-lock)?\.json|README\.md|vercel\.json|\.env(?:\.|$))/i;
+  return !blocked.test(normalized);
+}
 
 app.get('/api/health', asyncRoute(async (req, res) => {
   const health = await getHealth();
-  res.status(health.database === 'ok' ? 200 : 503).json({ status: health.database === 'ok' ? 'ok' : 'degraded', ...health, requestId: req.requestId });
+  res.status(health.database === 'ok' ? 200 : 503).json({ status: health.database === 'ok' ? 'ok' : 'degraded', uptimeSeconds: Math.floor((Date.now() - startedAt) / 1000), ...health, requestId: req.requestId });
 }));
 
 app.post('/api/auth/login', asyncRoute(async (req, res) => {
@@ -78,8 +83,7 @@ app.get('/api/admin/stats', asyncRoute(async (_req, res) => res.json(await getSt
 app.get('/api/admin/audits', asyncRoute(async (req, res) => res.json({ audits: await listAudits(req.query.limit) })));
 app.get('/api/admin/customers', asyncRoute(async (req, res) => res.json({ customers: await listCustomers(req.query.limit) })));
 app.post('/api/admin/customers', asyncRoute(async (req, res) => {
-  const body = req.body || {};
-  const name = cleanText(body.name, 120);
+  const body = req.body || {}; const name = cleanText(body.name, 120);
   if (!name) return res.status(400).json({ error: 'Nome é obrigatório.' });
   const customer = await createCustomer({ name, company: cleanText(body.company, 160), email: cleanText(body.email, 254), phone: cleanText(body.phone, 40), status: cleanText(body.status, 20) || 'lead', notes: cleanText(body.notes, 3000) });
   await addLog('info', 'customer.created', { customerId: customer.id }, req.requestId, req.admin.sub);
@@ -88,7 +92,17 @@ app.post('/api/admin/customers', asyncRoute(async (req, res) => {
 app.get('/api/admin/leads', asyncRoute(async (req, res) => res.json({ leads: await listLeads(req.query.limit) })));
 app.get('/api/admin/logs', asyncRoute(async (req, res) => res.json({ logs: await listLogs(req.query.limit) })));
 
-app.use(express.static(publicRoot, { index: 'index.html' }));
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api/')) return next();
+  if (!publicAssetAllowed(req.path)) return res.status(404).send('Not found');
+  next();
+});
+app.use(express.static(root, { index: 'index.html', dotfiles: 'deny' }));
+app.get('*', (req, res) => {
+  if (req.path.startsWith('/api/') || !publicAssetAllowed(req.path)) return res.status(404).send('Not found');
+  res.sendFile(path.join(root, 'index.html'));
+});
+
 app.use((err, req, res, _next) => {
   console.error(`[${req.requestId}]`, err);
   addLog('error', 'request.error', { message: err?.message || 'unknown', path: req.path }, req.requestId).catch(() => {});
