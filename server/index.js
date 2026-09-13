@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { auditUrl } from '../lib/audit.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const root = path.resolve(__dirname, '..');
 const app = express();
 const port = process.env.PORT || 3000;
 const buckets = new Map();
@@ -26,6 +27,7 @@ function rateLimited(req) {
   if (now > item.reset) item.count = 0, item.reset = now + 60_000;
   item.count += 1;
   buckets.set(key, item);
+  if (buckets.size > 5000) for (const [k, v] of buckets) if (v.reset < now) buckets.delete(k);
   return item.count > 20;
 }
 
@@ -33,7 +35,7 @@ app.post('/api/audit', async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   if (rateLimited(req)) return res.status(429).json({ error: 'Muitas análises. Tente novamente em alguns segundos.' });
   const { url } = req.body || {};
-  if (typeof url !== 'string' || url.length > 2048) return res.status(400).json({ error: 'Informe uma URL válida.' });
+  if (typeof url !== 'string' || url.trim().length === 0 || url.length > 2048) return res.status(400).json({ error: 'Informe uma URL válida.' });
   try {
     return res.json(await auditUrl(url.trim()));
   } catch (e) {
@@ -41,6 +43,6 @@ app.post('/api/audit', async (req, res) => {
   }
 });
 
-app.use(express.static(path.resolve(__dirname, '..')));
-app.get('*', (_req, res) => res.sendFile(path.resolve(__dirname, '..', 'costa_visibility_agency_v6_1.html')));
+app.use(express.static(root, { index: 'index.html' }));
+app.get('*', (_req, res) => res.sendFile(path.join(root, 'index.html')));
 app.listen(port, () => console.log(`COSTA running on http://localhost:${port}`));
