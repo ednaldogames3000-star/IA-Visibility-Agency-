@@ -3,7 +3,7 @@ import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { auditUrl } from '../lib/audit.js';
-import { addLog, createCustomer, createLead, getHealth, getStats, hasDatabase, listAudits, listCustomers, listLeads, listLogs, saveAudit } from '../lib/store.js';
+import { addLog, createCustomer, createLead, getHealth, getStats, hasDatabase, listAudits, listCustomerAudits, listCustomers, listLeads, listLogs, saveAudit } from '../lib/store.js';
 import { requireAdmin, signAdminToken, verifyAdminCredentials } from '../lib/auth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -40,7 +40,7 @@ function rateLimited(req, limit = 20) {
 function cleanText(value, max = 500) { return typeof value === 'string' ? value.trim().slice(0, max) : ''; }
 function asyncRoute(fn) { return (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next); }
 function publicAssetAllowed(urlPath) {
-  const normalized = decodeURIComponent(urlPath || '/');
+  let normalized; try { normalized = decodeURIComponent(urlPath || '/'); } catch { return false; }
   const blocked = /(^|\/)(lib|server|tests|node_modules|\.git)(\/|$)|(^|\/)(package(?:-lock)?\.json|README\.md|vercel\.json|\.env(?:\.|$))/i;
   return !blocked.test(normalized);
 }
@@ -82,6 +82,7 @@ app.use('/api/admin', requireAdmin);
 app.get('/api/admin/stats', asyncRoute(async (_req, res) => res.json(await getStats())));
 app.get('/api/admin/audits', asyncRoute(async (req, res) => res.json({ audits: await listAudits(req.query.limit) })));
 app.get('/api/admin/customers', asyncRoute(async (req, res) => res.json({ customers: await listCustomers(req.query.limit) })));
+app.get('/api/admin/customers/:id/audits', asyncRoute(async (req, res) => res.json({ audits: await listCustomerAudits(req.params.id, req.query.limit) })));
 app.post('/api/admin/customers', asyncRoute(async (req, res) => {
   const body = req.body || {}; const name = cleanText(body.name, 120);
   if (!name) return res.status(400).json({ error: 'Nome é obrigatório.' });
