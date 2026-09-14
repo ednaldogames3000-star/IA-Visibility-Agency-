@@ -47,6 +47,12 @@ function publicAssetAllowed(urlPath) {
   const blocked = /(^|\/)(lib|server|tests|node_modules|\.git|\.github|db|api)(\/|$)|(^|\/)(admin\.html|package(?:-lock)?\.json|README\.md|vercel\.json|\.env(?:\.|$))/i;
   return !blocked.test(normalized);
 }
+function siteUrl(req) {
+  const configured = cleanText(process.env.SITE_URL, 300).replace(/\/+$/, '');
+  if (configured) return configured;
+  const host = req.get('host');
+  return `${req.protocol}://${host}`.replace(/\/+$/, '');
+}
 
 app.get('/api/health', asyncRoute(async (req, res) => {
   const health = await getHealth();
@@ -109,6 +115,19 @@ app.post('/api/admin/customers', asyncRoute(async (req, res) => {
 }));
 app.get('/api/admin/leads', asyncRoute(async (req, res) => res.json({ leads: await listLeads(req.query.limit) })));
 app.get('/api/admin/logs', asyncRoute(async (req, res) => res.json({ logs: await listLogs(req.query.limit) })));
+
+// The admin HTML stays inaccessible as a public file, but the UI is available at a dedicated route.
+app.get('/painel', (_req, res) => res.sendFile(path.join(root, 'admin.html')));
+app.get('/robots.txt', (req, res) => {
+  res.type('text/plain').send(`User-agent: *\nAllow: /\nDisallow: /painel\nDisallow: /api/\nSitemap: ${siteUrl(req)}/sitemap.xml\n`);
+});
+app.get('/sitemap.xml', (req, res) => {
+  const base = siteUrl(req);
+  res.type('application/xml').send(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n  <url><loc>${base}/</loc></url>\n  <url><loc>${base}/privacy.html</loc></url>\n  <url><loc>${base}/terms.html</loc></url>\n</urlset>`);
+});
+app.get('/.well-known/security.txt', (req, res) => {
+  res.type('text/plain').send(`Contact: mailto:${cleanText(process.env.SECURITY_EMAIL, 254) || 'nzrcomercial@gmail.com'}\nPolicy: ${siteUrl(req)}/seguranca\nPreferred-Languages: pt-BR, en\n`);
+});
 
 app.use((req, res, next) => {
   if (req.path.startsWith('/api/')) return next();
