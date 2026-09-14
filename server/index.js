@@ -25,6 +25,7 @@ app.use((req, res, next) => {
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
   res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
   res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
+  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'");
   res.setHeader('Cache-Control', 'no-store');
   next();
 });
@@ -43,7 +44,7 @@ function validEmail(value) { return !value || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(
 function asyncRoute(fn) { return (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next); }
 function publicAssetAllowed(urlPath) {
   let normalized; try { normalized = decodeURIComponent(urlPath || '/'); } catch { return false; }
-  const blocked = /(^|\/)(lib|server|tests|node_modules|\.git|\.github|db|api)(\/|$)|(^|\/)(package(?:-lock)?\.json|README\.md|vercel\.json|\.env(?:\.|$))/i;
+  const blocked = /(^|\/)(lib|server|tests|node_modules|\.git|\.github|db|api)(\/|$)|(^|\/)(admin\.html|package(?:-lock)?\.json|README\.md|vercel\.json|\.env(?:\.|$))/i;
   return !blocked.test(normalized);
 }
 
