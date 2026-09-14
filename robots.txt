@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+Disallow: /admin.html
+Disallow: /api/
+Disallow: /server/
+Disallow: /lib/
+Disallow: /tests/
+Disallow: /db/
+Disallow: /.github/
