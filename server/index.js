@@ -24,6 +24,8 @@ app.use((req, res, next) => {
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
   res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+  res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
   res.setHeader('Cache-Control', 'no-store');
   next();
 });
@@ -41,7 +43,7 @@ function cleanText(value, max = 500) { return typeof value === 'string' ? value.
 function asyncRoute(fn) { return (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next); }
 function publicAssetAllowed(urlPath) {
   let normalized; try { normalized = decodeURIComponent(urlPath || '/'); } catch { return false; }
-  const blocked = /(^|\/)(lib|server|tests|node_modules|\.git)(\/|$)|(^|\/)(package(?:-lock)?\.json|README\.md|vercel\.json|\.env(?:\.|$))/i;
+  const blocked = /(^|\/)(lib|server|tests|node_modules|\.git|\.github|db|api)(\/|$)|(^|\/)(package(?:-lock)?\.json|README\.md|vercel\.json|\.env(?:\.|$))/i;
   return !blocked.test(normalized);
 }
 
