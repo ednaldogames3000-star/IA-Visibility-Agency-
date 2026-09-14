@@ -1,3 +1,4 @@
 Contact: mailto:nzrcomercial@gmail.com
 Preferred-Languages: pt-BR, en
-Policy: /seguranca
+Canonical: /.well-known/security.txt
+Policy: /terms.html
