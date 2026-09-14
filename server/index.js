@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { auditUrl } from '../lib/audit.js';
 import { addLog, createCustomer, createLead, getHealth, getStats, hasDatabase, listAudits, listCustomerAudits, listCustomers, listLeads, listLogs, saveAudit } from '../lib/store.js';
-import { requireAdmin, signAdminToken, verifyAdminCredentials } from '../lib/auth.js';
+import { clearAdminCookie, getAdminCookie, requireAdmin, signAdminToken, verifyAdminCredentials } from '../lib/auth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, '..');
@@ -25,7 +25,6 @@ app.use((req, res, next) => {
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
   res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
   res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
-  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
   res.setHeader('Cache-Control', 'no-store');
   next();
 });
@@ -40,6 +39,7 @@ function rateLimited(req, limit = 20) {
   return item.count > limit;
 }
 function cleanText(value, max = 500) { return typeof value === 'string' ? value.trim().slice(0, max) : ''; }
+function validEmail(value) { return !value || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value); }
 function asyncRoute(fn) { return (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next); }
 function publicAssetAllowed(urlPath) {
   let normalized; try { normalized = decodeURIComponent(urlPath || '/'); } catch { return false; }
@@ -58,9 +58,15 @@ app.post('/api/auth/login', asyncRoute(async (req, res) => {
   if (!verifyAdminCredentials(username, password)) return res.status(401).json({ error: 'Credenciais inválidas.' });
   if (!hasDatabase()) return res.status(503).json({ error: 'Banco PostgreSQL não configurado.' });
   const token = signAdminToken(username);
+  res.setHeader('Set-Cookie', getAdminCookie(token));
   await addLog('info', 'admin.login', {}, req.requestId, username);
-  return res.json({ token, expiresIn: 7200 });
+  return res.json({ authenticated: true, expiresIn: 7200 });
 }));
+
+app.post('/api/auth/logout', (req, res) => {
+  res.setHeader('Set-Cookie', clearAdminCookie());
+  return res.json({ authenticated: false });
+});
 
 app.post('/api/audit', asyncRoute(async (req, res) => {
   if (rateLimited(req, 20)) return res.status(429).json({ error: 'Muitas análises. Tente novamente em alguns segundos.' });
@@ -75,7 +81,14 @@ app.post('/api/audit', asyncRoute(async (req, res) => {
 app.post('/api/leads', asyncRoute(async (req, res) => {
   if (rateLimited(req, 10)) return res.status(429).json({ error: 'Muitas solicitações. Tente novamente mais tarde.' });
   const body = req.body || {};
-  const lead = await createLead({ name: cleanText(body.name, 120), company: cleanText(body.company, 160), email: cleanText(body.email, 254), phone: cleanText(body.phone, 40), source: cleanText(body.source, 80) || 'site', message: cleanText(body.message, 2000) });
+  const name = cleanText(body.name, 120);
+  const company = cleanText(body.company, 160);
+  const email = cleanText(body.email, 254);
+  const phone = cleanText(body.phone, 40);
+  const source = cleanText(body.source, 80) || 'site';
+  const message = cleanText(body.message, 2000);
+  if (!name || (!email && !phone) || !validEmail(email)) return res.status(400).json({ error: 'Informe nome e pelo menos um contato válido.' });
+  const lead = await createLead({ name, company, email, phone, source, message });
   await addLog('info', 'lead.created', { leadId: lead.id, source: lead.source }, req.requestId);
   return res.status(201).json({ id: lead.id, status: lead.status });
 }));
@@ -86,9 +99,10 @@ app.get('/api/admin/audits', asyncRoute(async (req, res) => res.json({ audits: a
 app.get('/api/admin/customers', asyncRoute(async (req, res) => res.json({ customers: await listCustomers(req.query.limit) })));
 app.get('/api/admin/customers/:id/audits', asyncRoute(async (req, res) => res.json({ audits: await listCustomerAudits(req.params.id, req.query.limit) })));
 app.post('/api/admin/customers', asyncRoute(async (req, res) => {
-  const body = req.body || {}; const name = cleanText(body.name, 120);
+  const body = req.body || {}; const name = cleanText(body.name, 120); const email = cleanText(body.email, 254);
   if (!name) return res.status(400).json({ error: 'Nome é obrigatório.' });
-  const customer = await createCustomer({ name, company: cleanText(body.company, 160), email: cleanText(body.email, 254), phone: cleanText(body.phone, 40), status: cleanText(body.status, 20) || 'lead', notes: cleanText(body.notes, 3000) });
+  if (!validEmail(email)) return res.status(400).json({ error: 'E-mail inválido.' });
+  const customer = await createCustomer({ name, company: cleanText(body.company, 160), email, phone: cleanText(body.phone, 40), status: cleanText(body.status, 20) || 'lead', notes: cleanText(body.notes, 3000) });
   await addLog('info', 'customer.created', { customerId: customer.id }, req.requestId, req.admin.sub);
   return res.status(201).json(customer);
 }));
@@ -113,6 +127,6 @@ app.use((err, req, res, _next) => {
   res.status(status).json({ error: status === 413 ? 'Requisição muito grande.' : 'Erro interno.', requestId: req.requestId });
 });
 
-if (process.env.NODE_ENV !== 'test') app.listen(port, () => console.log(`COSTA running on port ${port}`));
+if (!process.env.VERCEL && process.env.NODE_ENV !== 'test') app.listen(port, () => console.log(`COSTA running on port ${port}`));
 
 export { app };
